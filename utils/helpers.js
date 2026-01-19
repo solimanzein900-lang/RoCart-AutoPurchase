@@ -1,6 +1,6 @@
 // utils/helpers.js
 import { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
-import { prices, roles } from "../config/prices.js"; // adjust import if needed
+import { prices, roles } from "../config/prices.js";
 
 // -----------------------------
 // Format currency
@@ -9,7 +9,7 @@ export function formatUSD(amount) {
 }
 
 // -----------------------------
-// Create a simple embed
+// Create an embed
 export function createEmbed(title, description) {
   return new EmbedBuilder()
     .setTitle(title)
@@ -28,58 +28,73 @@ export function errorReply(interaction, message) {
 }
 
 // -----------------------------
-// Handle role pings and send price list dropdowns
+// Handle role pings and send dropdowns (splits into multiple menus if >25 items)
 export function handlePing(message, key) {
-  const priceList = prices[key]; // e.g., prices['GAG'] or prices['MM2']
+  const priceList = prices[key];
   if (!priceList) return;
 
-  const options = priceList.map(item => ({
-    label: item.name,
-    description: `Price: ${formatUSD(item.price)}`,
-    value: item.name,
-  }));
+  // Split into chunks of 25 for Discord select menus
+  const chunked = [];
+  for (let i = 0; i < priceList.length; i += 25) {
+    chunked.push(priceList.slice(i, i + 25));
+  }
 
-  // Create select menu
-  const selectMenu = new StringSelectMenuBuilder()
-    .setCustomId(`select_${key}`)
-    .setPlaceholder("Select items")
-    .addOptions(options)
-    .setMaxValues(10); // max 10 items
+  const rows = chunked.map((chunk, index) => {
+    const options = chunk.map(item => ({
+      label: item.name,
+      description: `Price: ${formatUSD(item.price)}`,
+      value: item.name,
+    }));
 
-  const row = new ActionRowBuilder().addComponents(selectMenu);
+    return new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(`select_${key}_${index}`)
+        .setPlaceholder("Select items")
+        .addOptions(options)
+        .setMaxValues(Math.min(options.length, 10)) // user can select up to 10 items per menu
+    );
+  });
 
-  // Send the embed with dropdown
-  const embed = createEmbed(`${key} Store`, `Select the items you want below. You can choose up to 10 items.`);
-  message.channel.send({ embeds: [embed], components: [row] });
+  const embed = createEmbed(`${key} Store`, `Select the items you want below. You can choose up to 10 items per dropdown.`);
+  message.channel.send({ embeds: [embed], components: rows });
 }
 
 // -----------------------------
-// Handle interactions (dropdowns/buttons)
+// Handle interactions
 export async function handleInteraction(interaction) {
-  // Check for dropdowns
-  if (interaction.isStringSelectMenu()) {
-    // Example: you would implement your cart logic here
-    await interaction.reply({ content: `You selected: ${interaction.values.join(", ")}`, ephemeral: true });
-  }
-
-  // Check for buttons (e.g., purchase, Google Pay / Apple Pay helpers)
-  if (interaction.isButton()) {
-    const customId = interaction.customId;
-
-    if (customId.startsWith("purchase_")) {
-      await interaction.reply({ content: `Purchase clicked for ${customId}`, ephemeral: true });
+  try {
+    if (interaction.isStringSelectMenu()) {
+      await interaction.reply({
+        content: `You selected: ${interaction.values.join(", ")}`,
+        ephemeral: true
+      });
     }
 
-    if (customId.startsWith("cantfind_")) {
-      await interaction.reply({ content: `Tutorial placeholder clicked: ${customId}`, ephemeral: true });
+    if (interaction.isButton()) {
+      const id = interaction.customId;
+
+      if (id.startsWith("purchase_")) {
+        await interaction.reply({ content: `Purchase button clicked: ${id}`, ephemeral: true });
+      }
+
+      if (id.startsWith("cantfind_")) {
+        await interaction.reply({ content: `Tutorial button clicked: ${id}`, ephemeral: true });
+      }
+    }
+  } catch (err) {
+    console.error("Interaction error:", err);
+    if (interaction.replied || interaction.deferred) {
+      interaction.followUp({ content: "An error occurred.", ephemeral: true });
+    } else {
+      interaction.reply({ content: "An error occurred.", ephemeral: true });
     }
   }
 }
 
 // -----------------------------
-// Register client events
+// Register events
 export function registerEvents(client) {
-  client.on("messageCreate", async message => {
+  client.on("messageCreate", message => {
     if (message.author.bot) return;
 
     Object.entries(roles).forEach(([key, roleId]) => {
@@ -90,15 +105,6 @@ export function registerEvents(client) {
   });
 
   client.on("interactionCreate", async interaction => {
-    try {
-      await handleInteraction(interaction);
-    } catch (err) {
-      console.error(err);
-      if (interaction.replied || interaction.deferred) {
-        interaction.followUp({ content: "An error occurred.", ephemeral: true });
-      } else {
-        interaction.reply({ content: "An error occurred.", ephemeral: true });
-      }
-    }
+    await handleInteraction(interaction);
   });
-  }
+}
