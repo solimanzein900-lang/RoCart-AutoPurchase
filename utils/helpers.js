@@ -1,21 +1,11 @@
-// utils/helpers.js
 import { EmbedBuilder } from "discord.js";
+import fs from 'fs';
+import path from 'path';
 
-/**
- * Format a number as USD
- * @param {number} amount
- * @returns {string}
- */
 export function formatUSD(amount) {
   return `$${amount} USD`;
 }
 
-/**
- * Create a Discord embed with standard style
- * @param {string} title
- * @param {string} description
- * @returns {EmbedBuilder}
- */
 export function createEmbed(title, description) {
   return new EmbedBuilder()
     .setTitle(title)
@@ -24,11 +14,6 @@ export function createEmbed(title, description) {
     .setTimestamp();
 }
 
-/**
- * Reply to an interaction with an ephemeral error message
- * @param {CommandInteraction|ButtonInteraction|SelectMenuInteraction} interaction
- * @param {string} message
- */
 export function errorReply(interaction, message) {
   if (interaction.replied || interaction.deferred) {
     return interaction.followUp({ content: message, ephemeral: true });
@@ -36,25 +21,25 @@ export function errorReply(interaction, message) {
   return interaction.reply({ content: message, ephemeral: true });
 }
 
-/**
- * Handles all interactions (buttons and dropdowns)
- * @param {Interaction} interaction
- * @param {Client} client
- */
-export async function handleInteraction(interaction, client) {
-  if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
+// NEW: registerEvents loads all events in /events
+export function registerEvents(client) {
+  const eventsPath = path.join(process.cwd(), 'events');
+  const eventFiles = fs.readdirSync(eventsPath).filter(f => f.endsWith('.js'));
 
-  try {
-    // Example placeholder logic:
-    // You will replace this with cart handling, dropdown selection, and payment buttons
-    await interaction.reply({
-      content: `You interacted with: ${interaction.customId}`,
-      ephemeral: true,
+  for (const file of eventFiles) {
+    import(path.join(eventsPath, file)).then((eventModule) => {
+      if (file.startsWith('message')) {
+        client.on('messageCreate', (...args) => eventModule.default(client, ...args));
+      } else if (file.startsWith('interaction')) {
+        client.on('interactionCreate', (...args) => eventModule.default(client, ...args));
+      }
     });
-  } catch (err) {
-    console.error("Interaction handling error:", err);
-    if (!interaction.replied) {
-      await interaction.reply({ content: "An error occurred.", ephemeral: true });
-    }
   }
 }
+
+// NEW: handleInteraction is just a placeholder handler for now
+export async function handleInteraction(interaction) {
+  // You can later add logic for dropdowns, buttons, cart, payments, etc.
+  if (!interaction.isButton() && !interaction.isSelectMenu()) return;
+  await interaction.reply({ content: 'Interaction received!', ephemeral: true });
+        }
