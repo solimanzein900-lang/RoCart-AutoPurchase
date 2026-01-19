@@ -1,10 +1,20 @@
-import messageCreate from '../events/messageCreate.js';
-import interactionCreate from '../events/interactionCreate.js';
+import { EmbedBuilder } from "discord.js";
 
-export function registerEvents(client) {
-    client.on('messageCreate', messageCreate);
-    client.on('interactionCreate', interactionCreate);
+export function formatUSD(amount) {
+  return `$${amount} USD`;
 }
 
-// Add helpers for creating dropdowns, embeds, etc.
-// Add your handlePing and handleInteraction logic here
+export function createEmbed(title, description) {
+  return new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(description)
+    .setColor(0x2b2d31)
+    .setTimestamp();
+}
+
+export function errorReply(interaction, message) {
+  if (interaction.replied || interaction.deferred) {
+    return interaction.followUp({ content: message, ephemeral: true });
+  }
+  return interaction.reply({ content: message, ephemeral: true });
+}
