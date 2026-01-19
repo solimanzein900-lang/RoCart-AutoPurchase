@@ -10,12 +10,11 @@ import {
 import { prices, roles } from "../config/prices.js";
 
 /* ================= STATE ================= */
-const carts = new Map(); // userId -> { items: Map(name -> { price, qty }), cartMsg, selectMsg }
+const carts = new Map();    // userId -> { items: Map, cartMsg, selectMsg }
 const checkout = new Map(); // userId -> total
 
 /* ================= HELPERS ================= */
 const formatUSD = n => `$${n.toFixed(2)} USD`;
-
 const ALL_ITEMS = Object.values(prices).flat();
 
 /* ================= ROLE PING ================= */
@@ -34,15 +33,19 @@ export async function handlePing(message, key) {
     .setMinValues(1)
     .setMaxValues(Math.min(10, list.length))
     .addOptions(
-      list.slice(0, 25).map(i => ({
-        label: i.name,
-        description: formatUSD(i.price),
-        value: i.name,
+      list.slice(0, 25).map(item => ({
+        label: item.name,
+        description: formatUSD(item.price),
+        value: item.name,
       }))
     );
 
   const row = new ActionRowBuilder().addComponents(select);
-  const msg = await message.channel.send({ embeds: [embed], components: [row] });
+
+  const msg = await message.channel.send({
+    embeds: [embed],
+    components: [row],
+  });
 
   carts.set(message.author.id, {
     items: new Map(),
@@ -76,11 +79,24 @@ async function renderCart(userId, channel) {
 
     rows.push(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`plus|${name}`).setLabel("+").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`minus|${name}`).setLabel("-").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`remove|${name}`).setLabel("Remove").setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId(`plus|${name}`)
+          .setLabel("+")
+          .setStyle(ButtonStyle.Secondary),
+
+        new ButtonBuilder()
+          .setCustomId(`minus|${name}`)
+          .setLabel("-")
+          .setStyle(ButtonStyle.Secondary),
+
+        new ButtonBuilder()
+          .setCustomId(`remove|${name}`)
+          .setLabel("Remove")
+          .setStyle(ButtonStyle.Danger),
       )
     );
+
+    if (rows.length === 4) break; // Discord limit safety
   }
 
   embeds.push(
@@ -106,6 +122,29 @@ async function renderCart(userId, channel) {
   }
 }
 
+/* ================= PAYMENT MENU ================= */
+async function sendPayment(interaction, total) {
+  const embed = new EmbedBuilder()
+    .setTitle("Select payment method")
+    .setDescription("Please select a payment method below to complete your purchase.")
+    .setColor(0x2b2d31);
+
+  const row = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId("payment_select")
+      .setPlaceholder("Select payment method")
+      .addOptions(
+        { label: "PayPal", value: "paypal" },
+        { label: "Card", value: "card" },
+        { label: "Google Pay", value: "google" },
+        { label: "Apple Pay", value: "apple" },
+        { label: "Litecoin", value: "ltc" }
+      )
+  );
+
+  await interaction.channel.send({ embeds: [embed], components: [row] });
+}
+
 /* ================= INTERACTIONS ================= */
 export async function handleInteraction(interaction) {
   const userId = interaction.user.id;
@@ -126,6 +165,7 @@ export async function handleInteraction(interaction) {
 
     await interaction.deferUpdate();
     await renderCart(userId, interaction.channel);
+    return;
   }
 
   /* -------- BUTTONS -------- */
@@ -133,7 +173,25 @@ export async function handleInteraction(interaction) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
 
+    if (interaction.customId === "purchase") {
+      let total = 0;
+      for (const item of cart.items.values()) {
+        total += item.price * item.qty;
+      }
+
+      checkout.set(userId, total);
+
+      if (cart.cartMsg) await cart.cartMsg.delete().catch(() => {});
+      if (cart.selectMsg) await cart.selectMsg.delete().catch(() => {});
+
+      carts.delete(userId);
+      await interaction.deferUpdate();
+      return sendPayment(interaction, total);
+    }
+
     const [action, name] = interaction.customId.split("|");
+
+    if (!cart.items.has(name)) return interaction.deferUpdate();
 
     if (action === "plus") cart.items.get(name).qty++;
     if (action === "minus") {
@@ -141,17 +199,6 @@ export async function handleInteraction(interaction) {
       if (cart.items.get(name).qty <= 0) cart.items.delete(name);
     }
     if (action === "remove") cart.items.delete(name);
-
-    if (interaction.customId === "purchase") {
-      let total = 0;
-      for (const i of cart.items.values()) total += i.price * i.qty;
-
-      checkout.set(userId, total);
-
-      if (cart.selectMsg) await cart.selectMsg.delete().catch(() => {});
-      await interaction.deferUpdate();
-      return sendPayment(interaction, total);
-    }
 
     if (cart.items.size === 0) {
       if (cart.cartMsg) await cart.cartMsg.delete().catch(() => {});
@@ -161,6 +208,7 @@ export async function handleInteraction(interaction) {
 
     await interaction.deferUpdate();
     await renderCart(userId, interaction.channel);
+    return;
   }
 
   /* -------- PAYMENT SELECT -------- */
@@ -199,10 +247,13 @@ export async function handleInteraction(interaction) {
 export function registerEvents(client) {
   client.on("messageCreate", msg => {
     if (msg.author.bot) return;
+
     for (const [key, roleId] of Object.entries(roles)) {
-      if (msg.mentions.roles.has(roleId)) handlePing(msg, key);
+      if (msg.mentions.roles.has(roleId)) {
+        handlePing(msg, key);
+      }
     }
   });
 
   client.on("interactionCreate", handleInteraction);
-  }
+         }
