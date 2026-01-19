@@ -10,7 +10,7 @@ import {
 import { prices, roles } from "../config/prices.js";
 
 /* ================= STATE ================= */
-const carts = new Map();    // userId -> { items: Map, cartMsg, selectMsg }
+const carts = new Map(); // userId -> { items: Map(name -> { price, qty }), cartMsg, selectMsg }
 const checkout = new Map(); // userId -> total
 
 /* ================= HELPERS ================= */
@@ -33,19 +33,15 @@ export async function handlePing(message, key) {
     .setMinValues(1)
     .setMaxValues(Math.min(10, list.length))
     .addOptions(
-      list.slice(0, 25).map(item => ({
-        label: item.name,
-        description: formatUSD(item.price),
-        value: item.name,
+      list.slice(0, 25).map(i => ({
+        label: i.name,
+        description: formatUSD(i.price),
+        value: i.name,
       }))
     );
 
   const row = new ActionRowBuilder().addComponents(select);
-
-  const msg = await message.channel.send({
-    embeds: [embed],
-    components: [row],
-  });
+  const msg = await message.channel.send({ embeds: [embed], components: [row] });
 
   carts.set(message.author.id, {
     items: new Map(),
@@ -61,19 +57,14 @@ async function renderCart(userId, channel) {
 
   const embeds = [];
   const rows = [];
-
   let total = 0;
 
   for (const [name, item] of cart.items) {
-    const itemTotal = item.price * item.qty;
-    total += itemTotal;
+    total += item.price * item.qty;
 
     embeds.push(
       new EmbedBuilder()
-        .setTitle(`${name} - ${formatUSD(item.price)}`)
-        .setDescription(
-          `**Amount:** ${item.qty}\n**Total:** ${formatUSD(itemTotal)}`
-        )
+        .setTitle(`${name} - ${formatUSD(item.price)}       Amount = ${item.qty}`)
         .setColor(0x2b2d31)
     );
 
@@ -83,20 +74,16 @@ async function renderCart(userId, channel) {
           .setCustomId(`plus|${name}`)
           .setLabel("+")
           .setStyle(ButtonStyle.Secondary),
-
         new ButtonBuilder()
           .setCustomId(`minus|${name}`)
           .setLabel("-")
           .setStyle(ButtonStyle.Secondary),
-
         new ButtonBuilder()
           .setCustomId(`remove|${name}`)
           .setLabel("Remove")
-          .setStyle(ButtonStyle.Danger),
+          .setStyle(ButtonStyle.Danger)
       )
     );
-
-    if (rows.length === 4) break; // Discord limit safety
   }
 
   embeds.push(
@@ -122,11 +109,14 @@ async function renderCart(userId, channel) {
   }
 }
 
-/* ================= PAYMENT MENU ================= */
+/* ================= PAYMENT ================= */
 async function sendPayment(interaction, total) {
   const embed = new EmbedBuilder()
-    .setTitle("Select payment method")
-    .setDescription("Please select a payment method below to complete your purchase.")
+    .setTitle("__Select Payment Method__")
+    .setDescription(
+      "Select the payment method you would like to use below.\n\n" +
+      "After choosing a payment method, follow the instructions to pay and receive your items."
+    )
     .setColor(0x2b2d31);
 
   const row = new ActionRowBuilder().addComponents(
@@ -134,11 +124,11 @@ async function sendPayment(interaction, total) {
       .setCustomId("payment_select")
       .setPlaceholder("Select payment method")
       .addOptions(
-        { label: "PayPal", value: "paypal" },
-        { label: "Card", value: "card" },
-        { label: "Google Pay", value: "google" },
-        { label: "Apple Pay", value: "apple" },
-        { label: "Litecoin", value: "ltc" }
+        { label: "PayPal", value: "paypal", emoji: "💰" },       // or :paypal: if custom emoji
+        { label: "Card", value: "card", emoji: "💳" },
+        { label: "Google Pay", value: "google", emoji: "🟦" },    // or :googlepay:
+        { label: "Apple Pay", value: "apple", emoji: "🍎" },
+        { label: "Litecoin", value: "ltc", emoji: "🟪" }          // or :litecoin:
       )
   );
 
@@ -157,15 +147,11 @@ export async function handleInteraction(interaction) {
     for (const name of interaction.values) {
       const item = ALL_ITEMS.find(i => i.name === name);
       if (!item) continue;
-
-      if (!cart.items.has(name)) {
-        cart.items.set(name, { price: item.price, qty: 1 });
-      }
+      if (!cart.items.has(name)) cart.items.set(name, { price: item.price, qty: 1 });
     }
 
     await interaction.deferUpdate();
     await renderCart(userId, interaction.channel);
-    return;
   }
 
   /* -------- BUTTONS -------- */
@@ -173,25 +159,7 @@ export async function handleInteraction(interaction) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
 
-    if (interaction.customId === "purchase") {
-      let total = 0;
-      for (const item of cart.items.values()) {
-        total += item.price * item.qty;
-      }
-
-      checkout.set(userId, total);
-
-      if (cart.cartMsg) await cart.cartMsg.delete().catch(() => {});
-      if (cart.selectMsg) await cart.selectMsg.delete().catch(() => {});
-
-      carts.delete(userId);
-      await interaction.deferUpdate();
-      return sendPayment(interaction, total);
-    }
-
     const [action, name] = interaction.customId.split("|");
-
-    if (!cart.items.has(name)) return interaction.deferUpdate();
 
     if (action === "plus") cart.items.get(name).qty++;
     if (action === "minus") {
@@ -200,15 +168,17 @@ export async function handleInteraction(interaction) {
     }
     if (action === "remove") cart.items.delete(name);
 
-    if (cart.items.size === 0) {
-      if (cart.cartMsg) await cart.cartMsg.delete().catch(() => {});
-      carts.delete(userId);
-      return interaction.deferUpdate();
+    if (interaction.customId === "purchase") {
+      let total = 0;
+      for (const i of cart.items.values()) total += i.price * i.qty;
+      checkout.set(userId, total);
+
+      await interaction.deferUpdate();
+      return sendPayment(interaction, total);
     }
 
     await interaction.deferUpdate();
     await renderCart(userId, interaction.channel);
-    return;
   }
 
   /* -------- PAYMENT SELECT -------- */
@@ -221,15 +191,18 @@ export async function handleInteraction(interaction) {
 
     if (method === "paypal") {
       text =
-        `Your total is ${formatUSD(total)}\n\n` +
-        `Please send ${formatUSD(total)} to \`solimanzein900@gmail.com\`.\n` +
-        `After paying, send a screenshot of the transaction.`;
+        `__PayPal Payment Instructions__\n\n` +
+        `Your total is **${formatUSD(total)}**\n\n` +
+        `Please send **${formatUSD(total)}** to the PayPal address:\n` +
+        `**solimanzein900@gmail.com**\n` +
+        `After paying, please send a screenshot of the transaction in this ticket.`;
     }
 
     if (method === "ltc") {
       text =
-        `Your total is ${formatUSD(total)}\n\n` +
-        `Please send exactly ${formatUSD(total)} to \`LRhUVpYPbANmtczdDuZbHHkrunyWJwEFKm\`\n` +
+        `__Litecoin Payment Instructions__\n\n` +
+        `Your total is **${formatUSD(total)}**\n\n` +
+        `Please send exactly **${formatUSD(total)}** to \`LRhUVpYPbANmtczdDuZbHHkrunyWJwEFKm\`\n` +
         `After paying, send a screenshot of the transaction.`;
     }
 
@@ -247,13 +220,10 @@ export async function handleInteraction(interaction) {
 export function registerEvents(client) {
   client.on("messageCreate", msg => {
     if (msg.author.bot) return;
-
     for (const [key, roleId] of Object.entries(roles)) {
-      if (msg.mentions.roles.has(roleId)) {
-        handlePing(msg, key);
-      }
+      if (msg.mentions.roles.has(roleId)) handlePing(msg, key);
     }
   });
 
   client.on("interactionCreate", handleInteraction);
-         }
+}
