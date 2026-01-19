@@ -1,1 +1,14 @@
-
+{
+  "name": "auto-purchase-bot",
+  "version": "1.0.0",
+  "description": "Auto-purchase Discord bot",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.1",
+    "dotenv": "^16.3.1"
+  }
+}
