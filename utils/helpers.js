@@ -1,6 +1,5 @@
-import fs from 'fs';
-import path from 'path';
-import { EmbedBuilder } from 'discord.js';
+// utils/helpers.js
+import { EmbedBuilder } from "discord.js";
 
 /**
  * Format a number as USD
@@ -12,7 +11,7 @@ export function formatUSD(amount) {
 }
 
 /**
- * Create a simple embed
+ * Create a Discord embed with standard style
  * @param {string} title
  * @param {string} description
  * @returns {EmbedBuilder}
@@ -21,13 +20,13 @@ export function createEmbed(title, description) {
   return new EmbedBuilder()
     .setTitle(title)
     .setDescription(description)
-    .setColor(0x2b2d31) // dark theme
+    .setColor(0x2b2d31)
     .setTimestamp();
 }
 
 /**
- * Reply with an ephemeral error message
- * @param {CommandInteraction} interaction
+ * Reply to an interaction with an ephemeral error message
+ * @param {CommandInteraction|ButtonInteraction|SelectMenuInteraction} interaction
  * @param {string} message
  */
 export function errorReply(interaction, message) {
@@ -38,21 +37,24 @@ export function errorReply(interaction, message) {
 }
 
 /**
- * Automatically register all events in the /events folder
+ * Handles all interactions (buttons and dropdowns)
+ * @param {Interaction} interaction
  * @param {Client} client
  */
-export async function registerEvents(client) {
-  const eventsPath = path.join(process.cwd(), 'events');
-  const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
+export async function handleInteraction(interaction, client) {
+  if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
 
-  for (const file of eventFiles) {
-    const { default: event } = await import(`../events/${file}`);
-    if (!event.name || !event.execute) continue;
-
-    if (event.once) {
-      client.once(event.name, (...args) => event.execute(...args, client));
-    } else {
-      client.on(event.name, (...args) => event.execute(...args, client));
+  try {
+    // Example placeholder logic:
+    // You will replace this with cart handling, dropdown selection, and payment buttons
+    await interaction.reply({
+      content: `You interacted with: ${interaction.customId}`,
+      ephemeral: true,
+    });
+  } catch (err) {
+    console.error("Interaction handling error:", err);
+    if (!interaction.replied) {
+      await interaction.reply({ content: "An error occurred.", ephemeral: true });
     }
   }
 }
