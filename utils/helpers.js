@@ -1,21 +1,25 @@
 // utils/helpers.js
-import {
-  EmbedBuilder,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-  ButtonBuilder,
-  ButtonStyle,
+import { 
+  EmbedBuilder, 
+  ActionRowBuilder, 
+  StringSelectMenuBuilder, 
+  ButtonBuilder, 
+  ButtonStyle 
 } from "discord.js";
 import { prices, roles } from "../config/prices.js";
 
 // -----------------------------
+// Per-user in-memory cart
+const userCarts = new Map();
+
+// -----------------------------
 // Format currency
 export function formatUSD(amount) {
-  return `$${amount} USD`;
+  return `$${amount.toFixed(2)} USD`;
 }
 
 // -----------------------------
-// Create an embed
+// Create a simple embed
 export function createEmbed(title, description) {
   return new EmbedBuilder()
     .setTitle(title)
@@ -34,120 +38,186 @@ export function errorReply(interaction, message) {
 }
 
 // -----------------------------
-// In-memory cart (userId -> [{name, price}])
-const cart = new Map();
-
-// -----------------------------
-// Handle role pings and send dropdowns (splits into multiple menus if >25 items)
+// Handle role pings and send dropdowns
 export function handlePing(message, key) {
-  // Fix swapped GAG and PVB roles
-  const fixedKey = key === "PVB" ? "GAG" : key === "GAG" ? "PVB" : key;
-  const priceList = prices[fixedKey];
+  const priceList = prices[key];
   if (!priceList) return;
 
-  // Split into chunks of 25 for Discord select menus
-  const chunked = [];
-  for (let i = 0; i < priceList.length; i += 25) {
-    chunked.push(priceList.slice(i, i + 25));
-  }
+  const options = priceList.map(item => ({
+    label: item.name,
+    description: `Price: ${formatUSD(item.price)}`,
+    value: item.name,
+  }));
 
-  const rows = chunked.map((chunk, index) => {
-    const options = chunk.map((item) => ({
-      label: item.name,
-      description: `Price: ${formatUSD(item.price)}`,
-      value: item.name,
-    }));
-
-    return new ActionRowBuilder().addComponents(
-      new StringSelectMenuBuilder()
-        .setCustomId(`select_${fixedKey}_${index}`)
-        .setPlaceholder("Select items")
-        .addOptions(options)
-        .setMaxValues(Math.min(options.length, 10)) // max 10 items per menu
-    );
-  });
-
-  const embed = createEmbed(
-    `${fixedKey} Store`,
-    `Select the items you want below. You can choose up to 10 items per dropdown.`
+  const row = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`select_${key}`)
+      .setPlaceholder("Select items")
+      .addOptions(options)
+      .setMaxValues(Math.min(options.length, 10))
   );
-  message.channel.send({ embeds: [embed], components: rows });
+
+  const embed = createEmbed(`${key} Store`, `Select the items you want below. You can choose up to 10 items.`);
+  message.channel.send({ embeds: [embed], components: [row] });
 }
 
 // -----------------------------
-// Handle interactions
+// Generate cart embed and buttons
+function generateCartEmbed(userId) {
+  const cart = userCarts.get(userId) || [];
+  if (cart.length === 0) return null;
+
+  const embed = new EmbedBuilder()
+    .setTitle("🛒 Your Cart")
+    .setColor(0x2b2d31)
+    .setTimestamp();
+
+  let total = 0;
+  const description = cart.map((item, i) => {
+    const itemTotal = item.price * item.quantity;
+    total += itemTotal;
+    return `**${item.name} - ${formatUSD(item.price)}**       [+] ${item.quantity} [-]     ${formatUSD(itemTotal)} [X]`;
+  }).join("\n");
+
+  embed.setDescription(description + `\n\n**Total:** ${formatUSD(total)}`);
+  return embed;
+}
+
+// -----------------------------
+// Generate action row for cart items
+function generateCartButtons(userId) {
+  const cart = userCarts.get(userId) || [];
+  const row = new ActionRowBuilder();
+
+  cart.forEach((item, i) => {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`plus_${i}`)
+        .setLabel("+")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`minus_${i}`)
+        .setLabel("-")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`remove_${i}`)
+        .setLabel("X")
+        .setStyle(ButtonStyle.Danger)
+    );
+  });
+
+  row.addComponents(
+    new ButtonBuilder()
+      .setCustomId("purchase_cart")
+      .setLabel("🛒Purchase")
+      .setStyle(ButtonStyle.Success)
+  );
+
+  return row;
+}
+
+// -----------------------------
+// Handle item selection
 export async function handleInteraction(interaction) {
-  try {
+  if (interaction.isStringSelectMenu()) {
     const userId = interaction.user.id;
+    const [prefix] = interaction.customId.split("_"); // select_GAG etc.
 
-    // -----------------------------
-    // Dropdowns
-    if (interaction.isStringSelectMenu()) {
-      const selectedItems = interaction.values;
-      const key = interaction.customId.split("_")[1];
+    if (!userCarts.has(userId)) userCarts.set(userId, []);
 
-      // Map selected items to full objects
-      const items = prices[key].filter((i) => selectedItems.includes(i.name));
+    const cart = userCarts.get(userId);
+    interaction.values.forEach(val => {
+      const allItems = Object.values(prices).flat();
+      const item = allItems.find(it => it.name === val);
+      if (!item) return;
 
-      // Add to cart
-      if (!cart.has(userId)) cart.set(userId, []);
-      cart.set(userId, [...cart.get(userId), ...items]);
+      const existing = cart.find(c => c.name === item.name);
+      if (existing) existing.quantity += 1;
+      else cart.push({ name: item.name, price: item.price, quantity: 1 });
+    });
 
-      // Send ephemeral reply showing cart and PURCHASE button
-      const cartItems = cart.get(userId)
-        .map((i) => `${i.name} - ${formatUSD(i.price)}`)
-        .join("\n");
+    const embed = generateCartEmbed(userId);
+    const row = generateCartButtons(userId);
 
-      const embed = createEmbed("Your Cart", cartItems || "Cart is empty");
+    await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+  }
 
-      const purchaseButton = new ButtonBuilder()
-        .setCustomId("purchase_cart")
-        .setLabel("PURCHASE")
-        .setStyle(ButtonStyle.Success);
+  if (interaction.isButton()) {
+    const userId = interaction.user.id;
+    const cart = userCarts.get(userId) || [];
 
-      const row = new ActionRowBuilder().addComponents(purchaseButton);
+    const [action, indexStr] = interaction.customId.split("_");
+    const index = parseInt(indexStr);
 
-      await interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    if (action === "plus") cart[index].quantity += 1;
+    if (action === "minus") {
+      cart[index].quantity -= 1;
+      if (cart[index].quantity <= 0) cart.splice(index, 1);
+    }
+    if (action === "remove") cart.splice(index, 1);
+
+    if (interaction.customId === "purchase_cart") {
+      // Show payment method dropdown
+      const paymentEmbed = createEmbed("Payment", "Please select a payment method below to complete your purchase.");
+      const paymentRow = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("select_payment")
+          .setPlaceholder("Select payment method")
+          .addOptions([
+            { label: "PayPal", value: "paypal" },
+            { label: "Card", value: "card" },
+            { label: "Google Pay", value: "gpay" },
+            { label: "Apple Pay", value: "applepay" },
+            { label: "Litecoin", value: "litecoin" },
+          ])
+      );
+
+      await interaction.update({ embeds: [paymentEmbed], components: [paymentRow] });
+      return;
     }
 
-    // -----------------------------
-    // Buttons
-    if (interaction.isButton()) {
-      const id = interaction.customId;
+    if (interaction.customId === "select_payment") return;
 
-      if (id === "purchase_cart") {
-        const items = cart.get(userId) || [];
-        if (items.length === 0) {
-          await interaction.reply({ content: "Your cart is empty.", ephemeral: true });
-        } else {
-          const total = items.reduce((sum, i) => sum + i.price, 0);
-          const itemList = items.map((i) => `${i.name} - ${formatUSD(i.price)}`).join("\n");
-          await interaction.reply({
-            content: `Purchase successful!\n\nItems:\n${itemList}\n\nTotal: ${formatUSD(total)}`,
-            ephemeral: true,
-          });
-          cart.delete(userId); // clear cart
-        }
-      }
+    if (action === "select") return;
 
-      if (id.startsWith("cantfind_")) {
-        await interaction.reply({ content: `Tutorial button clicked: ${id}`, ephemeral: true });
-      }
+    const updatedEmbed = generateCartEmbed(userId);
+    const updatedRow = generateCartButtons(userId);
+    await interaction.update({ embeds: [updatedEmbed], components: [updatedRow] });
+  }
+
+  if (interaction.isStringSelectMenu() && interaction.customId === "select_payment") {
+    const userId = interaction.user.id;
+    const cart = userCarts.get(userId) || [];
+    const total = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    let content = "";
+
+    switch (interaction.values[0]) {
+      case "paypal":
+        content = `Your total is ${formatUSD(total)}\n\nPlease send ${formatUSD(total)} to \`solimanzein900@gmail.com\`.\nAfter paying, send a screenshot of the transaction.`;
+        break;
+      case "litecoin":
+        content = `Your total is ${formatUSD(total)}\n\nPlease send exactly ${formatUSD(total)} to \`LRhUVpYPbANmtczdDuZbHHkrunyWJwEFKm\`.\nAfter paying, send a screenshot of the transaction.`;
+        break;
+      case "card":
+        content = `Your total is ${formatUSD(total)}\n\nPlease use your card to pay the total. Instructions go here.`;
+        break;
+      case "gpay":
+        content = `Your total is ${formatUSD(total)}\n\nPlease use Google Pay to complete your payment. Instructions go here.`;
+        break;
+      case "applepay":
+        content = `Your total is ${formatUSD(total)}\n\nPlease use Apple Pay to complete your payment. Instructions go here.`;
+        break;
     }
-  } catch (err) {
-    console.error("Interaction error:", err);
-    if (interaction.replied || interaction.deferred) {
-      interaction.followUp({ content: "An error occurred.", ephemeral: true });
-    } else {
-      interaction.reply({ content: "An error occurred.", ephemeral: true });
-    }
+
+    const embed = createEmbed("Payment Instructions", content);
+    await interaction.update({ embeds: [embed], components: [] });
   }
 }
 
 // -----------------------------
 // Register events
 export function registerEvents(client) {
-  client.on("messageCreate", (message) => {
+  client.on("messageCreate", message => {
     if (message.author.bot) return;
 
     Object.entries(roles).forEach(([key, roleId]) => {
@@ -157,7 +227,7 @@ export function registerEvents(client) {
     });
   });
 
-  client.on("interactionCreate", async (interaction) => {
+  client.on("interactionCreate", async interaction => {
     await handleInteraction(interaction);
   });
-            }
+                              }
