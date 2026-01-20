@@ -8,6 +8,7 @@ import {
 } from "discord.js";
 
 import { prices, roles } from "../config/prices.js";
+import { getPaymentEmbed } from "./paymentHandlers.js";
 
 /* ================= STATE ================= */
 const carts = new Map(); // userId -> { items: Map(name -> { price, qty }), cartMsg, selectMsg }
@@ -23,8 +24,13 @@ export async function handlePing(message, key) {
   if (!list) return;
 
   const embed = new EmbedBuilder()
-    .setTitle(`${key} Store`)
-    .setDescription("Select items to add to your cart.")
+    .setTitle(`__${key}__`)
+    .setDescription(
+      `<:reply_continued:1463044510392254631> Select items to add to your cart\n\n` +
+      `<:reply_continued:1463044510392254631> You can select up to 10 different items\n\n` +
+      `<:reply_continued:1463044510392254631> Use the [+] and [-] buttons to edit the amount of each item\n\n` +
+      `<:reply_continued:1463044510392254631> After selecting the items you want, click the Purchase button and select a payment method.`
+    )
     .setColor(0x2b2d31);
 
   const select = new StringSelectMenuBuilder()
@@ -59,13 +65,25 @@ async function renderCart(userId, channel) {
   const rows = [];
   let total = 0;
 
+  // Cart header
+  embeds.push(
+    new EmbedBuilder()
+      .setTitle("__<:cart:1463050420250218547>Your Cart__")
+      .setColor(0x2b2d31)
+  );
+
+  // Each item
   for (const [name, item] of cart.items) {
     total += item.price * item.qty;
 
     embeds.push(
       new EmbedBuilder()
-        .setTitle(`${name} - ${formatUSD(item.price)}       Amount = ${item.qty}`)
         .setColor(0x2b2d31)
+        .addFields(
+          { name: name, value: "\u200b", inline: true },
+          { name: "\u200b", value: `${item.qty}×`, inline: true }
+        )
+        .setDescription(formatUSD(item.price * item.qty))
     );
 
     rows.push(
@@ -86,6 +104,7 @@ async function renderCart(userId, channel) {
     );
   }
 
+  // Optional: total embed
   embeds.push(
     new EmbedBuilder()
       .setTitle("🛒 Cart Total")
@@ -124,11 +143,11 @@ async function sendPayment(interaction, total) {
       .setCustomId("payment_select")
       .setPlaceholder("Select payment method")
       .addOptions(
-        { label: "PayPal", value: "paypal", emoji: "💰" },       // or :paypal: if custom emoji
+        { label: "PayPal", value: "paypal", emoji: "💰" },
         { label: "Card", value: "card", emoji: "💳" },
-        { label: "Google Pay", value: "google", emoji: "🟦" },    // or :googlepay:
+        { label: "Google Pay", value: "google", emoji: "🟦" },
         { label: "Apple Pay", value: "apple", emoji: "🍎" },
-        { label: "Litecoin", value: "ltc", emoji: "🟪" }          // or :litecoin:
+        { label: "Litecoin", value: "ltc", emoji: "🟪" }
       )
   );
 
@@ -187,31 +206,34 @@ export async function handleInteraction(interaction) {
     if (!total) return interaction.deferUpdate();
 
     const method = interaction.values[0];
-    let text = "";
+    let embed;
 
-    if (method === "paypal") {
-      text =
-        `__PayPal Payment Instructions__\n\n` +
-        `Your total is **${formatUSD(total)}**\n\n` +
-        `Please send **${formatUSD(total)}** to the PayPal address:\n` +
-        `**solimanzein900@gmail.com**\n` +
-        `After paying, please send a screenshot of the transaction in this ticket.`;
+    switch (method.toLowerCase()) {
+      case "paypal":
+        embed = getPaymentEmbed("PayPal", total);
+        await interaction.channel.send({ embeds: [embed] });
+        break;
+      case "ltc":
+        embed = getPaymentEmbed("Litecoin", total);
+        await interaction.channel.send({ embeds: [embed] });
+        break;
+      case "card":
+      case "google":
+      case "apple":
+        embed = getPaymentEmbed(method, total);
+        const purchaseRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setLabel("Purchase")
+            .setEmoji("1463050420250218547")
+            .setStyle(ButtonStyle.Link)
+            .setURL("https://buy.stripe.com/6oUaEQcXicS81mhcWQ0VO0B")
+        );
+        await interaction.channel.send({ embeds: [embed], components: [purchaseRow] });
+        break;
+      default:
+        await interaction.channel.send("Payment method not supported.");
     }
 
-    if (method === "ltc") {
-      text =
-        `__Litecoin Payment Instructions__\n\n` +
-        `Your total is **${formatUSD(total)}**\n\n` +
-        `Please send exactly **${formatUSD(total)}** to \`LRhUVpYPbANmtczdDuZbHHkrunyWJwEFKm\`\n` +
-        `After paying, send a screenshot of the transaction.`;
-    }
-
-    const embed = new EmbedBuilder()
-      .setTitle("Payment Instructions")
-      .setDescription(text)
-      .setColor(0x2b2d31);
-
-    await interaction.channel.send({ embeds: [embed] });
     await interaction.deferUpdate();
   }
 }
@@ -226,4 +248,4 @@ export function registerEvents(client) {
   });
 
   client.on("interactionCreate", handleInteraction);
-}
+      }
