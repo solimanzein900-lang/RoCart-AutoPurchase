@@ -41,11 +41,11 @@ export async function handlePing(message, key) {
       "<:reply_continued:1463044510392254631>\n" +
       "<:reply_continued:1463044510392254631> You can select up to 10 different items\n" +
       "<:reply_continued:1463044510392254631>\n" +
-      "<:reply_continued:1463044510392254631> Use the [+] and [-] sign to edit the amount of\n" +
-      "<:reply_continued:1463044510392254631> each item\n" +
+      "<:reply_continued:1463044510392254631> Use the [+] and [-] buttons to edit the amount\n" +
+      "<:reply_continued:1463044510392254631> of each item\n" +
       "<:reply_continued:1463044510392254631>\n" +
-      "<:reply_continued:1463044510392254631> After selecting the items you want, click the\n" +
-      "<:reply_continued:1463044510392254631> Purchase button and select a payment method."
+      "<:reply_continued:1463044510392254631> After selecting your items, click Purchase\n" +
+      "<:reply_continued:1463044510392254631> and choose a payment method."
     )
     .setColor(0x2b2d31);
 
@@ -90,7 +90,7 @@ async function renderCart(userId, channel) {
 
   embeds.push(
     new EmbedBuilder()
-      .setTitle("__<:cart:1463050420250218547>Your Cart__")
+      .setTitle("__🛒 Your Cart__")
       .setColor(0x2b2d31)
   );
 
@@ -101,7 +101,7 @@ async function renderCart(userId, channel) {
       new EmbedBuilder()
         .setColor(0x2b2d31)
         .setDescription(
-          `**${name}**${"\u200b".repeat(20)}${item.qty}×\n` +
+          `**${name}**${"\u200b".repeat(22)}×${item.qty}\n` +
           `   ${formatUSD(item.price * item.qty)}`
         )
     );
@@ -150,14 +150,16 @@ async function renderCart(userId, channel) {
 /* ================= PAYMENT MENU ================= */
 async function sendPaymentMenu(channel) {
   const embed = new EmbedBuilder()
-    .setTitle("Payment Method")
-    .setDescription("Select a payment method below.")
+    .setDescription(
+      "Select the payment method you would like to use below.\n\n" +
+      "After choosing a payment method, follow the instructions to pay and receive your items."
+    )
     .setColor(0x2b2d31);
 
   const row = new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId("payment_select")
-      .setPlaceholder("Choose payment method")
+      .setPlaceholder("Select payment method")
       .addOptions(
         { label: "PayPal", value: "paypal", emoji: "💰" },
         { label: "Card", value: "card", emoji: "💳" },
@@ -208,7 +210,6 @@ export async function handleInteraction(interaction) {
 
     const [action, name] = interaction.customId.split("|");
     const item = cart.items.get(name);
-
     if (!item) return interaction.deferUpdate();
 
     if (action === "plus") item.qty++;
@@ -290,4 +291,4 @@ export function registerEvents(client) {
   });
 
   client.on("interactionCreate", handleInteraction);
-}
+                                  }
