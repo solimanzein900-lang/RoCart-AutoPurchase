@@ -90,7 +90,7 @@ async function renderCart(userId, channel) {
 
   embeds.push(
     new EmbedBuilder()
-      .setTitle("__🛒 Your Cart__")
+      .setTitle(":cart:**__Your Cart__**")
       .setColor(0x2b2d31)
   );
 
@@ -150,9 +150,12 @@ async function renderCart(userId, channel) {
 /* ================= PAYMENT MENU ================= */
 async function sendPaymentMenu(channel) {
   const embed = new EmbedBuilder()
+    .setTitle("**__Select Payment Method__**")
     .setDescription(
-      "Select the payment method you would like to use below.\n\n" +
-      "After choosing a payment method, follow the instructions to pay and receive your items."
+      "<:reply_continued:1463044510392254631> Select the payment method you would like to\n" +
+      "<:reply_continued:1463044510392254631> use below.\n\n" +
+      "<:reply_continued:1463044510392254631> After choosing a payment method, follow\n" +
+      "<:reply_continued:1463044510392254631> the instructions to pay and receive your items."
     )
     .setColor(0x2b2d31);
 
@@ -161,11 +164,11 @@ async function sendPaymentMenu(channel) {
       .setCustomId("payment_select")
       .setPlaceholder("Select payment method")
       .addOptions(
-        { label: "PayPal", value: "paypal", emoji: "💰" },
+        { label: "PayPal", value: "paypal", emoji: ":paypal:" },
         { label: "Card", value: "card", emoji: "💳" },
-        { label: "Google Pay", value: "google", emoji: "🟦" },
-        { label: "Apple Pay", value: "apple", emoji: "🍎" },
-        { label: "Litecoin", value: "ltc", emoji: "🪙" }
+        { label: "Google Pay", value: "google", emoji: ":googlepay:" },
+        { label: "Apple Pay", value: "apple", emoji: ":applepay:" },
+        { label: "Litecoin", value: "ltc", emoji: ":litecoin:" }
       )
   );
 
@@ -291,4 +294,4 @@ export function registerEvents(client) {
   });
 
   client.on("interactionCreate", handleInteraction);
-                                  }
+}
