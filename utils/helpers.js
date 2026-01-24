@@ -22,8 +22,8 @@ ROLE ↔ STORE TITLE (FIXED)
 1460735391903776828 -> Plants v Brainrots
 */
 const STORE_TITLES = {
-  GAG: "Grow A Garden",
-  GrowAGarden: "Plants v Brainrots",
+  "1460735559977664542": "Grow A Garden",
+  "1460735391903776828": "Plants v Brainrots",
   BladeBall: "Blade Ball",
   PetSim99: "Pet Simulator 99",
   MM2: "Murder Mystery 2",
@@ -151,7 +151,7 @@ async function renderCart(userId, channel) {
 }
 
 /* ================= PAYMENT MENU ================= */
-async function sendPaymentMenu(channel, total) {
+async function sendPaymentMenu(channel) {
   const embed = new EmbedBuilder()
     .setTitle("**__Select Payment Method__**")
     .setDescription(
@@ -210,7 +210,7 @@ export async function handleInteraction(interaction) {
       checkout.set(userId, total);
 
       await interaction.deferUpdate();
-      return sendPaymentMenu(interaction.channel, total);
+      return sendPaymentMenu(interaction.channel);
     }
 
     const [action, name] = interaction.customId.split("|");
@@ -289,30 +289,19 @@ export async function handleInteraction(interaction) {
 
 /* ================= EVENTS ================= */
 export function registerEvents(client) {
-  const TICKET_TOOL_ID = "557628352828014614";
-
   client.on("messageCreate", async msg => {
-    if (msg.author.bot) return;
-
-    // Ticket Tool detection
-    const gagRoleId = roles.GAG; // Role that triggers cart
-    const growRoleId = roles.GrowAGarden;
-
-    if (
-      msg.author.id === TICKET_TOOL_ID &&
-      (msg.content.includes(`<@&${gagRoleId}>`) || msg.content.includes(`<@&${growRoleId}>`))
-    ) {
-      // Detect which store title to send
-      if (msg.content.includes(`<@&${gagRoleId}>`)) await handlePing(msg, "GAG");
-      if (msg.content.includes(`<@&${growRoleId}>`)) await handlePing(msg, "GrowAGarden");
-      return;
+    if (msg.author.bot) {
+      // Only respond to Ticket Tool bot
+      if (msg.author.id !== "557628352828014614") return;
     }
 
-    // Regular role ping detection
+    // Check if message contains any role pings manually
     for (const [key, roleId] of Object.entries(roles)) {
-      if (msg.mentions.roles.has(roleId)) await handlePing(msg, key);
+      if (msg.content.includes(`<@&${roleId}>`)) {
+        handlePing(msg, key);
+      }
     }
   });
 
   client.on("interactionCreate", handleInteraction);
-    }
+      }
