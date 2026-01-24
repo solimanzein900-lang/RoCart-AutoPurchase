@@ -74,11 +74,11 @@ export async function handlePing(message, key) {
     );
   }
 
-  await message.channel.send({ embeds: [embed], components: rows });
+  const cartMsg = await message.channel.send({ embeds: [embed], components: rows });
 
   carts.set(message.author.id, {
     items: new Map(),
-    cartMsg: null,
+    cartMsg,
   });
 }
 
@@ -143,16 +143,15 @@ async function renderCart(userId, channel) {
     )
   );
 
-  // Always send the cart if it doesn't exist, else edit
-  if (!cart.cartMsg) {
-    cart.cartMsg = await channel.send({ embeds, components: rows });
-  } else {
+  if (cart.cartMsg) {
     await cart.cartMsg.edit({ embeds, components: rows });
+  } else {
+    cart.cartMsg = await channel.send({ embeds, components: rows });
   }
 }
 
 /* ================= PAYMENT MENU ================= */
-async function sendPaymentMenu(channel) {
+async function sendPaymentMenu(channel, total) {
   const embed = new EmbedBuilder()
     .setTitle("**__Select Payment Method__**")
     .setDescription(
@@ -191,12 +190,13 @@ export async function handleInteraction(interaction) {
     for (const name of interaction.values) {
       const item = ALL_ITEMS.find(i => i.name === name);
       if (!item) continue;
-      if (!cart.items.has(name)) cart.items.set(name, { price: item.price, qty: 1 });
+      if (!cart.items.has(name)) {
+        cart.items.set(name, { price: item.price, qty: 1 });
+      }
     }
 
     await interaction.deferUpdate();
-    await renderCart(userId, interaction.channel); // <-- ensures cart shows up immediately
-    return;
+    return renderCart(userId, interaction.channel);
   }
 
   /* CART BUTTONS */
@@ -210,7 +210,7 @@ export async function handleInteraction(interaction) {
       checkout.set(userId, total);
 
       await interaction.deferUpdate();
-      return sendPaymentMenu(interaction.channel);
+      return sendPaymentMenu(interaction.channel, total);
     }
 
     const [action, name] = interaction.customId.split("|");
@@ -289,21 +289,30 @@ export async function handleInteraction(interaction) {
 
 /* ================= EVENTS ================= */
 export function registerEvents(client) {
+  const TICKET_TOOL_ID = "557628352828014614";
+
   client.on("messageCreate", async msg => {
     if (msg.author.bot) return;
 
-    // FIX: Reply when Ticket Tool bot pings the role
-    const ticketToolId = "557628352828014614"; // Ticket Tool bot ID
-    const autoCartRoleId = roles.GAG; // Your AutoPurchase role ID for GAG
-    if (msg.author.id === ticketToolId && msg.mentions.roles.has(autoCartRoleId)) {
-      return handlePing(msg, "GAG"); // send cart automatically
+    // Ticket Tool detection
+    const gagRoleId = roles.GAG; // Role that triggers cart
+    const growRoleId = roles.GrowAGarden;
+
+    if (
+      msg.author.id === TICKET_TOOL_ID &&
+      (msg.content.includes(`<@&${gagRoleId}>`) || msg.content.includes(`<@&${growRoleId}>`))
+    ) {
+      // Detect which store title to send
+      if (msg.content.includes(`<@&${gagRoleId}>`)) await handlePing(msg, "GAG");
+      if (msg.content.includes(`<@&${growRoleId}>`)) await handlePing(msg, "GrowAGarden");
+      return;
     }
 
-    // Regular role ping
+    // Regular role ping detection
     for (const [key, roleId] of Object.entries(roles)) {
-      if (msg.mentions.roles.has(roleId)) handlePing(msg, key);
+      if (msg.mentions.roles.has(roleId)) await handlePing(msg, key);
     }
   });
 
   client.on("interactionCreate", handleInteraction);
-}
+    }
