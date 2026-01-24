@@ -16,10 +16,14 @@ const checkout = new Map(); // userId -> total
 /* ================= CONFIG ================= */
 const STRIPE_LINK = "https://buy.stripe.com/6oUaEQcXicS81mhcWQ0VO0B";
 
-/* ================= STORE TITLES ================= */
+/*
+ROLE ↔ STORE TITLE (FIXED)
+1460735559977664542 -> Grow A Garden
+1460735391903776828 -> Plants v Brainrots
+*/
 const STORE_TITLES = {
-  "1460735559977664542": "Grow A Garden",
-  "1460735391903776828": "Plants v Brainrots",
+  GAG: "Grow A Garden",
+  GrowAGarden: "Plants v Brainrots",
   BladeBall: "Blade Ball",
   PetSim99: "Pet Simulator 99",
   MM2: "Murder Mystery 2",
@@ -31,7 +35,7 @@ const formatUSD = n => `$${n.toFixed(2)} USD`;
 const ALL_ITEMS = Object.values(prices).flat();
 
 /* ================= STORE OPEN ================= */
-export async function handlePing(message, key) {
+export async function handlePing(message, key, userId = message.author.id) {
   const list = prices[key];
   if (!list) return;
 
@@ -69,12 +73,8 @@ export async function handlePing(message, key) {
     );
   }
 
-  await message.channel.send({ embeds: [embed], components: rows });
-
-  carts.set(message.author.id, {
-    items: new Map(),
-    cartMsg: null,
-  });
+  const cartMsg = await message.channel.send({ embeds: [embed], components: rows });
+  carts.set(userId, { items: new Map(), cartMsg });
 }
 
 /* ================= CART RENDER ================= */
@@ -146,7 +146,10 @@ async function renderCart(userId, channel) {
 }
 
 /* ================= PAYMENT MENU ================= */
-async function sendPaymentMenu(channel) {
+async function sendPaymentMenu(channel, userId) {
+  const total = checkout.get(userId);
+  if (!total) return;
+
   const embed = new EmbedBuilder()
     .setTitle("**__Select Payment Method__**")
     .setDescription(
@@ -191,7 +194,7 @@ export async function handleInteraction(interaction) {
     }
 
     await interaction.deferUpdate();
-    return renderCart(userId, interaction.channel); // Cart pops up immediately
+    return renderCart(userId, interaction.channel);
   }
 
   /* CART BUTTONS */
@@ -205,7 +208,7 @@ export async function handleInteraction(interaction) {
       checkout.set(userId, total);
 
       await interaction.deferUpdate();
-      return sendPaymentMenu(interaction.channel);
+      return sendPaymentMenu(interaction.channel, userId);
     }
 
     const [action, name] = interaction.customId.split("|");
@@ -236,7 +239,7 @@ export async function handleInteraction(interaction) {
       embed = new EmbedBuilder()
         .setTitle("Payment Instructions")
         .setDescription(
-          "__PayPal Payment Instructions__\n\n" +
+          `__PayPal Payment Instructions__\n\n` +
           `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
           `<:reply_continued:1463044510392254631> Send via **Friends & Family** to:\n` +
           `**solimanzein900@gmail.com**\n\n` +
@@ -249,7 +252,7 @@ export async function handleInteraction(interaction) {
       embed = new EmbedBuilder()
         .setTitle("Payment Instructions")
         .setDescription(
-          "__Litecoin Payment Instructions__\n\n" +
+          `__Litecoin Payment Instructions__\n\n` +
           `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
           `<:reply_continued:1463044510392254631> Send exactly **${formatUSD(total)}** to:\n` +
           "```\nLRhUVpYPbANmtczdDuZbHHkrunyWJwEFKm\n```\n" +
@@ -262,7 +265,7 @@ export async function handleInteraction(interaction) {
       embed = new EmbedBuilder()
         .setTitle("Payment Instructions")
         .setDescription(
-          "__Card Payment Instructions__\n\n" +
+          `__Card Payment Instructions__\n\n` +
           `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
           `<:reply_continued:1463044510392254631> Click the **Purchase** button below\n\n` +
           `<:reply_continued:1463044510392254631> After paying, send a screenshot in this ticket`
@@ -285,18 +288,25 @@ export async function handleInteraction(interaction) {
 /* ================= EVENTS ================= */
 export function registerEvents(client) {
   client.on("messageCreate", async msg => {
-    if (msg.author.bot) return;
-
-    // Check for Ticket Tool ping (user ID: 557628352828014614)
-    if (msg.mentions.users.has("557628352828014614")) {
-      // AutoPurchase bot replies to ticket tool ping
-      for (const [key, roleId] of Object.entries(roles)) {
-        if (msg.mentions.roles.has(roleId)) {
-          await handlePing(msg, key);
+    if (msg.author.bot) {
+      // Ticket Tool ping fix
+      if (msg.author.id === "557628352828014614") {
+        for (const [key, roleId] of Object.entries(roles)) {
+          if (msg.mentions.roles.has(roleId)) {
+            // Use a fixed ID so the bot responds
+            await handlePing(msg, key, "ticket_tool_cart");
+          }
         }
+        return;
       }
+      return;
+    }
+
+    // Normal role ping
+    for (const [key, roleId] of Object.entries(roles)) {
+      if (msg.mentions.roles.has(roleId)) handlePing(msg, key);
     }
   });
 
   client.on("interactionCreate", handleInteraction);
-            }
+      }
