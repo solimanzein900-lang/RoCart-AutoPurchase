@@ -5,8 +5,6 @@ import {
   StringSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
-  GatewayIntentBits,
-  Client,
 } from "discord.js";
 
 import { prices, roles } from "../config/prices.js";
@@ -57,6 +55,7 @@ export async function handlePing(message, key) {
   const rows = [];
   for (let i = 0; i < list.length; i += 25) {
     const chunk = list.slice(i, i + 25);
+
     rows.push(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
@@ -75,8 +74,12 @@ export async function handlePing(message, key) {
     );
   }
 
-  const sent = await message.channel.send({ embeds: [embed], components: rows });
-  carts.set(message.author.id, { items: new Map(), cartMsg: null, selectMsg: sent });
+  await message.channel.send({ embeds: [embed], components: rows });
+
+  carts.set(message.author.id, {
+    items: new Map(),
+    cartMsg: null,
+  });
 }
 
 /* ================= CART RENDER ================= */
@@ -140,18 +143,16 @@ async function renderCart(userId, channel) {
     )
   );
 
-  if (cart.cartMsg) {
-    await cart.cartMsg.edit({ embeds, components: [...rows, ...cart.selectMsg.components] });
-  } else {
+  // Always send the cart if it doesn't exist, else edit
+  if (!cart.cartMsg) {
     cart.cartMsg = await channel.send({ embeds, components: rows });
+  } else {
+    await cart.cartMsg.edit({ embeds, components: rows });
   }
 }
 
 /* ================= PAYMENT MENU ================= */
-async function sendPaymentMenu(channel, userId) {
-  const total = checkout.get(userId);
-  if (!total) return;
-
+async function sendPaymentMenu(channel) {
   const embed = new EmbedBuilder()
     .setTitle("**__Select Payment Method__**")
     .setDescription(
@@ -182,6 +183,7 @@ async function sendPaymentMenu(channel, userId) {
 export async function handleInteraction(interaction) {
   const userId = interaction.user.id;
 
+  /* ITEM SELECT */
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith("item_select")) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
@@ -193,9 +195,11 @@ export async function handleInteraction(interaction) {
     }
 
     await interaction.deferUpdate();
-    return renderCart(userId, interaction.channel);
+    await renderCart(userId, interaction.channel); // <-- ensures cart shows up immediately
+    return;
   }
 
+  /* CART BUTTONS */
   if (interaction.isButton()) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
@@ -206,7 +210,7 @@ export async function handleInteraction(interaction) {
       checkout.set(userId, total);
 
       await interaction.deferUpdate();
-      return sendPaymentMenu(interaction.channel, userId);
+      return sendPaymentMenu(interaction.channel);
     }
 
     const [action, name] = interaction.customId.split("|");
@@ -224,6 +228,7 @@ export async function handleInteraction(interaction) {
     return renderCart(userId, interaction.channel);
   }
 
+  /* PAYMENT SELECT */
   if (interaction.isStringSelectMenu() && interaction.customId === "payment_select") {
     const total = checkout.get(userId);
     if (!total) return interaction.deferUpdate();
@@ -236,7 +241,7 @@ export async function handleInteraction(interaction) {
       embed = new EmbedBuilder()
         .setTitle("Payment Instructions")
         .setDescription(
-          `__PayPal Payment Instructions__\n\n` +
+          "__PayPal Payment Instructions__\n\n" +
           `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
           `<:reply_continued:1463044510392254631> Send via **Friends & Family** to:\n` +
           `**solimanzein900@gmail.com**\n\n` +
@@ -249,7 +254,7 @@ export async function handleInteraction(interaction) {
       embed = new EmbedBuilder()
         .setTitle("Payment Instructions")
         .setDescription(
-          `__Litecoin Payment Instructions__\n\n` +
+          "__Litecoin Payment Instructions__\n\n" +
           `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
           `<:reply_continued:1463044510392254631> Send exactly **${formatUSD(total)}** to:\n` +
           "```\nLRhUVpYPbANmtczdDuZbHHkrunyWJwEFKm\n```\n" +
@@ -262,7 +267,7 @@ export async function handleInteraction(interaction) {
       embed = new EmbedBuilder()
         .setTitle("Payment Instructions")
         .setDescription(
-          `__Card Payment Instructions__\n\n` +
+          "__Card Payment Instructions__\n\n" +
           `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
           `<:reply_continued:1463044510392254631> Click the **Purchase** button below\n\n` +
           `<:reply_continued:1463044510392254631> After paying, send a screenshot in this ticket`
@@ -285,10 +290,20 @@ export async function handleInteraction(interaction) {
 /* ================= EVENTS ================= */
 export function registerEvents(client) {
   client.on("messageCreate", async msg => {
+    if (msg.author.bot) return;
+
+    // FIX: Reply when Ticket Tool bot pings the role
+    const ticketToolId = "557628352828014614"; // Ticket Tool bot ID
+    const autoCartRoleId = roles.GAG; // Your AutoPurchase role ID for GAG
+    if (msg.author.id === ticketToolId && msg.mentions.roles.has(autoCartRoleId)) {
+      return handlePing(msg, "GAG"); // send cart automatically
+    }
+
+    // Regular role ping
     for (const [key, roleId] of Object.entries(roles)) {
-      if (msg.mentions.roles.has(roleId)) await handlePing(msg, key);
+      if (msg.mentions.roles.has(roleId)) handlePing(msg, key);
     }
   });
 
   client.on("interactionCreate", handleInteraction);
-      }
+}
