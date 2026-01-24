@@ -5,6 +5,8 @@ import {
   StringSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
+  GatewayIntentBits,
+  Client,
 } from "discord.js";
 
 import { prices, roles } from "../config/prices.js";
@@ -35,7 +37,7 @@ const formatUSD = n => `$${n.toFixed(2)} USD`;
 const ALL_ITEMS = Object.values(prices).flat();
 
 /* ================= STORE OPEN ================= */
-export async function handlePing(message, key, userId = message.author.id) {
+export async function handlePing(message, key) {
   const list = prices[key];
   if (!list) return;
 
@@ -73,8 +75,8 @@ export async function handlePing(message, key, userId = message.author.id) {
     );
   }
 
-  const cartMsg = await message.channel.send({ embeds: [embed], components: rows });
-  carts.set(userId, { items: new Map(), cartMsg });
+  const sent = await message.channel.send({ embeds: [embed], components: rows });
+  carts.set(message.author.id, { items: new Map(), cartMsg: null, selectMsg: sent });
 }
 
 /* ================= CART RENDER ================= */
@@ -139,7 +141,7 @@ async function renderCart(userId, channel) {
   );
 
   if (cart.cartMsg) {
-    await cart.cartMsg.edit({ embeds, components: rows });
+    await cart.cartMsg.edit({ embeds, components: [...rows, ...cart.selectMsg.components] });
   } else {
     cart.cartMsg = await channel.send({ embeds, components: rows });
   }
@@ -180,7 +182,6 @@ async function sendPaymentMenu(channel, userId) {
 export async function handleInteraction(interaction) {
   const userId = interaction.user.id;
 
-  /* ITEM SELECT */
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith("item_select")) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
@@ -188,16 +189,13 @@ export async function handleInteraction(interaction) {
     for (const name of interaction.values) {
       const item = ALL_ITEMS.find(i => i.name === name);
       if (!item) continue;
-      if (!cart.items.has(name)) {
-        cart.items.set(name, { price: item.price, qty: 1 });
-      }
+      if (!cart.items.has(name)) cart.items.set(name, { price: item.price, qty: 1 });
     }
 
     await interaction.deferUpdate();
     return renderCart(userId, interaction.channel);
   }
 
-  /* CART BUTTONS */
   if (interaction.isButton()) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
@@ -226,7 +224,6 @@ export async function handleInteraction(interaction) {
     return renderCart(userId, interaction.channel);
   }
 
-  /* PAYMENT SELECT */
   if (interaction.isStringSelectMenu() && interaction.customId === "payment_select") {
     const total = checkout.get(userId);
     if (!total) return interaction.deferUpdate();
@@ -288,23 +285,8 @@ export async function handleInteraction(interaction) {
 /* ================= EVENTS ================= */
 export function registerEvents(client) {
   client.on("messageCreate", async msg => {
-    if (msg.author.bot) {
-      // Ticket Tool ping fix
-      if (msg.author.id === "557628352828014614") {
-        for (const [key, roleId] of Object.entries(roles)) {
-          if (msg.mentions.roles.has(roleId)) {
-            // Use a fixed ID so the bot responds
-            await handlePing(msg, key, "ticket_tool_cart");
-          }
-        }
-        return;
-      }
-      return;
-    }
-
-    // Normal role ping
     for (const [key, roleId] of Object.entries(roles)) {
-      if (msg.mentions.roles.has(roleId)) handlePing(msg, key);
+      if (msg.mentions.roles.has(roleId)) await handlePing(msg, key);
     }
   });
 
