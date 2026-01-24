@@ -10,27 +10,24 @@ import {
 import { prices, roles } from "../config/prices.js";
 
 /* ================= STATE ================= */
-const carts = new Map();
-const checkout = new Map();
+const carts = new Map(); // userId -> { items: Map(name -> { price, qty }), cartMsg }
+const checkout = new Map(); // userId -> total
 
 /* ================= CONFIG ================= */
 const STRIPE_LINK = "https://buy.stripe.com/6oUaEQcXicS81mhcWQ0VO0B";
 
+/*
+ROLE ↔ STORE TITLE (FIXED)
+1460735559977664542 -> Grow A Garden
+1460735391903776828 -> Plants v Brainrots
+*/
 const STORE_TITLES = {
-  GAG: "Plants v Brainrots",
-  GrowAGarden: "Grow A Garden",
+  GAG: "Grow A Garden",
+  GrowAGarden: "Plants v Brainrots",
   BladeBall: "Blade Ball",
   PetSim99: "Pet Simulator 99",
   MM2: "Murder Mystery 2",
   StealABrainrot: "Steal A Brainrot",
-};
-
-/* ================= EMOJIS ================= */
-const EMOJIS = {
-  paypal: { id: "1462934268375470235" },
-  googlepay: { id: "1462934898762453033" },
-  applepay: { id: "1462934955062464522" },
-  litecoin: { id: "1462934136502227065" },
 };
 
 /* ================= HELPERS ================= */
@@ -49,20 +46,21 @@ export async function handlePing(message, key) {
       "<:reply_continued:1463044510392254631>\n" +
       "<:reply_continued:1463044510392254631> You can select up to 10 different items\n" +
       "<:reply_continued:1463044510392254631>\n" +
-      "<:reply_continued:1463044510392254631> Use the [+] and [-] buttons to edit quantity\n" +
+      "<:reply_continued:1463044510392254631> Use the [+] and [-] buttons to edit amounts\n" +
       "<:reply_continued:1463044510392254631>\n" +
-      "<:reply_continued:1463044510392254631> Click Purchase when ready"
+      "<:reply_continued:1463044510392254631> When ready, click **Purchase** and choose a payment method."
     )
     .setColor(0x2b2d31);
 
   const rows = [];
   for (let i = 0; i < list.length; i += 25) {
     const chunk = list.slice(i, i + 25);
+
     rows.push(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId(`item_select_${i / 25}`)
-          .setPlaceholder(`Select items (${i / 25 + 1})`)
+          .setPlaceholder("Select items")
           .setMinValues(1)
           .setMaxValues(Math.min(10, chunk.length))
           .addOptions(
@@ -77,7 +75,11 @@ export async function handlePing(message, key) {
   }
 
   await message.channel.send({ embeds: [embed], components: rows });
-  carts.set(message.author.id, { items: new Map(), cartMsg: null });
+
+  carts.set(message.author.id, {
+    items: new Map(),
+    cartMsg: null,
+  });
 }
 
 /* ================= CART RENDER ================= */
@@ -109,9 +111,18 @@ async function renderCart(userId, channel) {
 
     rows.push(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`plus|${name}`).setLabel("+").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`minus|${name}`).setLabel("-").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`remove|${name}`).setLabel("Remove").setStyle(ButtonStyle.Danger)
+        new ButtonBuilder()
+          .setCustomId(`plus|${name}`)
+          .setLabel("+")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`minus|${name}`)
+          .setLabel("-")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`remove|${name}`)
+          .setLabel("Remove")
+          .setStyle(ButtonStyle.Danger)
       )
     );
   }
@@ -125,12 +136,18 @@ async function renderCart(userId, channel) {
 
   rows.push(
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("purchase").setLabel("🛒 Purchase").setStyle(ButtonStyle.Success)
+      new ButtonBuilder()
+        .setCustomId("purchase")
+        .setLabel("🛒 Purchase")
+        .setStyle(ButtonStyle.Success)
     )
   );
 
-  if (cart.cartMsg) await cart.cartMsg.edit({ embeds, components: rows });
-  else cart.cartMsg = await channel.send({ embeds, components: rows });
+  if (cart.cartMsg) {
+    await cart.cartMsg.edit({ embeds, components: rows });
+  } else {
+    cart.cartMsg = await channel.send({ embeds, components: rows });
+  }
 }
 
 /* ================= PAYMENT MENU ================= */
@@ -150,11 +167,11 @@ async function sendPaymentMenu(channel) {
       .setCustomId("payment_select")
       .setPlaceholder("Choose payment method")
       .addOptions(
-        { label: "PayPal", value: "paypal", emoji: EMOJIS.paypal },
-        { label: "Card", value: "card", emoji: { name: "💳" } },
-        { label: "Google Pay", value: "google", emoji: EMOJIS.googlepay },
-        { label: "Apple Pay", value: "apple", emoji: EMOJIS.applepay },
-        { label: "Litecoin", value: "ltc", emoji: EMOJIS.litecoin }
+        { label: "PayPal", value: "paypal", emoji: { id: "1462934268375470235" } },
+        { label: "Card", value: "card", emoji: { id: "1463050420250218547" } },
+        { label: "Google Pay", value: "google", emoji: { id: "1462934898762453033" } },
+        { label: "Apple Pay", value: "apple", emoji: { id: "1462934955062464522" } },
+        { label: "Litecoin", value: "ltc", emoji: { id: "1462934136502227065" } }
       )
   );
 
@@ -165,25 +182,33 @@ async function sendPaymentMenu(channel) {
 export async function handleInteraction(interaction) {
   const userId = interaction.user.id;
 
+  /* ITEM SELECT */
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith("item_select")) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
 
     for (const name of interaction.values) {
       const item = ALL_ITEMS.find(i => i.name === name);
-      if (!cart.items.has(name)) cart.items.set(name, { price: item.price, qty: 1 });
+      if (!item) continue;
+      if (!cart.items.has(name)) {
+        cart.items.set(name, { price: item.price, qty: 1 });
+      }
     }
 
     await interaction.deferUpdate();
     return renderCart(userId, interaction.channel);
   }
 
+  /* CART BUTTONS */
   if (interaction.isButton()) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
 
     if (interaction.customId === "purchase") {
-      checkout.set(userId, [...cart.items.values()].reduce((a, i) => a + i.price * i.qty, 0));
+      let total = 0;
+      for (const i of cart.items.values()) total += i.price * i.qty;
+      checkout.set(userId, total);
+
       await interaction.deferUpdate();
       return sendPaymentMenu(interaction.channel);
     }
@@ -193,35 +218,67 @@ export async function handleInteraction(interaction) {
     if (!item) return interaction.deferUpdate();
 
     if (action === "plus") item.qty++;
-    if (action === "minus" && --item.qty <= 0) cart.items.delete(name);
+    if (action === "minus") {
+      item.qty--;
+      if (item.qty <= 0) cart.items.delete(name);
+    }
     if (action === "remove") cart.items.delete(name);
 
     await interaction.deferUpdate();
     return renderCart(userId, interaction.channel);
   }
 
+  /* PAYMENT SELECT */
   if (interaction.isStringSelectMenu() && interaction.customId === "payment_select") {
     const total = checkout.get(userId);
     if (!total) return interaction.deferUpdate();
 
     const method = interaction.values[0];
-    let embed, row = null;
+    let embed;
+    let row = null;
 
-    if (method === "paypal" || method === "ltc") {
+    if (method === "paypal") {
       embed = new EmbedBuilder()
         .setTitle("Payment Instructions")
-        .setDescription(`Your total is **${formatUSD(total)}**`)
+        .setDescription(
+          "__PayPal Payment Instructions__\n\n" +
+          `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
+          `<:reply_continued:1463044510392254631> Send via **Friends & Family** to:\n` +
+          `**solimanzein900@gmail.com**\n\n` +
+          `<:reply_continued:1463044510392254631> After paying, send a screenshot in this ticket`
+        )
+        .setColor(0x2b2d31);
+    }
+
+    if (method === "ltc") {
+      embed = new EmbedBuilder()
+        .setTitle("Payment Instructions")
+        .setDescription(
+          "__Litecoin Payment Instructions__\n\n" +
+          `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
+          `<:reply_continued:1463044510392254631> Send exactly **${formatUSD(total)}** to:\n` +
+          "```\nLRhUVpYPbANmtczdDuZbHHkrunyWJwEFKm\n```\n" +
+          `<:reply_continued:1463044510392254631> After paying, send a screenshot in this ticket`
+        )
         .setColor(0x2b2d31);
     }
 
     if (["card", "google", "apple"].includes(method)) {
       embed = new EmbedBuilder()
         .setTitle("Payment Instructions")
-        .setDescription(`Click the button below to pay **${formatUSD(total)}**`)
+        .setDescription(
+          "__Card Payment Instructions__\n\n" +
+          `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
+          `<:reply_continued:1463044510392254631> Click the **Purchase** button below\n\n` +
+          `<:reply_continued:1463044510392254631> After paying, send a screenshot in this ticket`
+        )
         .setColor(0x2b2d31);
 
       row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(STRIPE_LINK).setLabel("🛒 Purchase")
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setURL(STRIPE_LINK)
+          .setLabel("🛒 Purchase")
       );
     }
 
@@ -240,4 +297,4 @@ export function registerEvents(client) {
   });
 
   client.on("interactionCreate", handleInteraction);
-}
+    }
