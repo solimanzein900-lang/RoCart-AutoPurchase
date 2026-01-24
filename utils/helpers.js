@@ -16,15 +16,10 @@ const checkout = new Map(); // userId -> total
 /* ================= CONFIG ================= */
 const STRIPE_LINK = "https://buy.stripe.com/6oUaEQcXicS81mhcWQ0VO0B";
 
-/*
-ROLE ↔ STORE TITLE (FIXED)
-1460735559977664542 -> Grow A Garden
-1460735391903776828 -> Plants v Brainrots
-*/
+/* ROLE ↔ STORE TITLE (fixed) */
 const STORE_TITLES = {
   GAG: "Grow A Garden",
-  GrowAGarden: "Grow A Garden",
-  GrowABrainrot: "Plants v Brainrots",
+  GrowAGarden: "Plants v Brainrots",
   BladeBall: "Blade Ball",
   PetSim99: "Pet Simulator 99",
   MM2: "Murder Mystery 2",
@@ -56,7 +51,6 @@ export async function handlePing(message, key) {
   const rows = [];
   for (let i = 0; i < list.length; i += 25) {
     const chunk = list.slice(i, i + 25);
-
     rows.push(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
@@ -75,12 +69,8 @@ export async function handlePing(message, key) {
     );
   }
 
-  await message.channel.send({ embeds: [embed], components: rows });
-
-  carts.set(message.author.id, {
-    items: new Map(),
-    cartMsg: null,
-  });
+  const cartMessage = await message.channel.send({ embeds: [embed], components: rows });
+  carts.set(message.author.id, { items: new Map(), cartMsg: cartMessage });
 }
 
 /* ================= CART RENDER ================= */
@@ -105,16 +95,25 @@ async function renderCart(userId, channel) {
       new EmbedBuilder()
         .setColor(0x2b2d31)
         .setDescription(
-          `**${name}×${item.qty}**\n` +
+          `**${name}**${"\u200b".repeat(18)}×${item.qty}\n` +
           `   ${formatUSD(item.price * item.qty)}`
         )
     );
 
     rows.push(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`plus|${name}`).setLabel("+").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`minus|${name}`).setLabel("-").setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`remove|${name}`).setLabel("Remove").setStyle(ButtonStyle.Danger)
+        new ButtonBuilder()
+          .setCustomId(`plus|${name}`)
+          .setLabel("+")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`minus|${name}`)
+          .setLabel("-")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`remove|${name}`)
+          .setLabel("Remove")
+          .setStyle(ButtonStyle.Danger)
       )
     );
   }
@@ -160,9 +159,9 @@ async function sendPaymentMenu(channel) {
       .setPlaceholder("Choose payment method")
       .addOptions(
         { label: "PayPal", value: "paypal", emoji: { id: "1462934268375470235" } },
-        { label: "Card", value: "card" },
-        { label: "Google Pay", value: "google" },
-        { label: "Apple Pay", value: "apple" },
+        { label: "Card", value: "card", emoji: { id: "1463050420250218547" } },
+        { label: "Google Pay", value: "google", emoji: { id: "1462934898762453033" } },
+        { label: "Apple Pay", value: "apple", emoji: { id: "1462934955062464522" } },
         { label: "Litecoin", value: "ltc", emoji: { id: "1462934136502227065" } }
       )
   );
@@ -174,6 +173,7 @@ async function sendPaymentMenu(channel) {
 export async function handleInteraction(interaction) {
   const userId = interaction.user.id;
 
+  /* ITEM SELECT */
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith("item_select")) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
@@ -188,6 +188,7 @@ export async function handleInteraction(interaction) {
     return renderCart(userId, interaction.channel);
   }
 
+  /* CART BUTTONS */
   if (interaction.isButton()) {
     const cart = carts.get(userId);
     if (!cart) return interaction.deferUpdate();
@@ -216,6 +217,7 @@ export async function handleInteraction(interaction) {
     return renderCart(userId, interaction.channel);
   }
 
+  /* PAYMENT SELECT */
   if (interaction.isStringSelectMenu() && interaction.customId === "payment_select") {
     const total = checkout.get(userId);
     if (!total) return interaction.deferUpdate();
@@ -230,8 +232,9 @@ export async function handleInteraction(interaction) {
         .setDescription(
           "__PayPal Payment Instructions__\n\n" +
           `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
-          `<:reply_continued:1463044510392254631> Please send **$${total.toFixed(2)}** to **solimanzein900@gmail.com**\n\n` +
-          `<:reply_continued:1463044510392254631> After paying, please send a screenshot in this ticket`
+          `<:reply_continued:1463044510392254631> Send via **Friends & Family** to:\n` +
+          `**solimanzein900@gmail.com**\n\n` +
+          `<:reply_continued:1463044510392254631> After paying, send a screenshot in this ticket`
         )
         .setColor(0x2b2d31);
     }
@@ -242,9 +245,9 @@ export async function handleInteraction(interaction) {
         .setDescription(
           "__Litecoin Payment Instructions__\n\n" +
           `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
-          `<:reply_continued:1463044510392254631> Send exactly **$${total.toFixed(2)}** to:\n` +
+          `<:reply_continued:1463044510392254631> Send exactly **${formatUSD(total)}** to:\n` +
           "```\nLRhUVpYPbANmtczdDuZbHHkrunyWJwEFKm\n```\n" +
-          `<:reply_continued:1463044510392254631> After paying, please send a screenshot in this ticket`
+          `<:reply_continued:1463044510392254631> After paying, send a screenshot in this ticket`
         )
         .setColor(0x2b2d31);
     }
@@ -256,7 +259,7 @@ export async function handleInteraction(interaction) {
           "__Card Payment Instructions__\n\n" +
           `<:reply_continued:1463044510392254631> Your total is **${formatUSD(total)}**\n` +
           `<:reply_continued:1463044510392254631> Click the **Purchase** button below\n\n` +
-          `<:reply_continued:1463044510392254631> After paying, please send a screenshot in this ticket`
+          `<:reply_continued:1463044510392254631> After paying, send a screenshot in this ticket`
         )
         .setColor(0x2b2d31);
 
@@ -276,11 +279,16 @@ export async function handleInteraction(interaction) {
 /* ================= EVENTS ================= */
 export function registerEvents(client) {
   client.on("messageCreate", msg => {
-    if (msg.author.bot) return;
-    for (const [key, roleId] of Object.entries(roles)) {
-      if (msg.mentions.roles.has(roleId)) handlePing(msg, key);
+    if (msg.author.bot) {
+      // Only respond if the message is from Ticket Tool bot
+      if (msg.author.id === "557628352828014614") {
+        for (const [key, roleId] of Object.entries(roles)) {
+          if (msg.mentions.roles.has(roleId)) handlePing(msg, key);
+        }
+      }
+      return;
     }
   });
 
   client.on("interactionCreate", handleInteraction);
-    }
+}
