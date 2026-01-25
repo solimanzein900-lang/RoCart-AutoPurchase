@@ -22,8 +22,8 @@ ROLE ↔ STORE TITLE (FIXED)
 1460735391903776828 -> Plants v Brainrots
 */
 const STORE_TITLES = {
-  "1460735559977664542": "Grow A Garden",
-  "1460735391903776828": "Plants v Brainrots",
+  GAG: "Grow A Garden",
+  GrowAGarden: "Plants v Brainrots",
   BladeBall: "Blade Ball",
   PetSim99: "Pet Simulator 99",
   MM2: "Murder Mystery 2",
@@ -74,11 +74,11 @@ export async function handlePing(message, key) {
     );
   }
 
-  const cartMsg = await message.channel.send({ embeds: [embed], components: rows });
+  await message.channel.send({ embeds: [embed], components: rows });
 
   carts.set(message.author.id, {
     items: new Map(),
-    cartMsg,
+    cartMsg: null,
   });
 }
 
@@ -289,17 +289,10 @@ export async function handleInteraction(interaction) {
 
 /* ================= EVENTS ================= */
 export function registerEvents(client) {
-  client.on("messageCreate", async msg => {
-    if (msg.author.bot) {
-      // Only respond to Ticket Tool bot
-      if (msg.author.id !== "557628352828014614") return;
-    }
-
-    // Check if message contains any role pings manually
+  client.on("messageCreate", msg => {
+    if (msg.author.bot) return;
     for (const [key, roleId] of Object.entries(roles)) {
-      if (msg.content.includes(`<@&${roleId}>`)) {
-        handlePing(msg, key);
-      }
+      if (msg.mentions.roles.has(roleId)) handlePing(msg, key);
     }
   });
 
